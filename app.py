@@ -81,9 +81,9 @@ def ver_aperturas():
     except Exception as e:
         return f"<p>Error al consultar la tabla: {str(e)}</p>"
 
-    @app.route("/")
-    def index():
-        return ver_aperturas()
+@app.route("/")
+def index():
+    return ver_aperturas()
 
 if __name__ == "__main__":
     crear_tabla_aperturas()
