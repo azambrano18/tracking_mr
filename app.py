@@ -93,8 +93,8 @@ def ver_aperturas():
                 MIN(enviado) AS primer_enviado,
                 MIN(abierto) AS primer_abierto,
                 MIN(demora_segundos) AS primera_demora,
-                COUNT(*) AS total_aperturas,
-                ARRAY_AGG(DISTINCT user_agent) AS user_agents
+                ARRAY_AGG(DISTINCT user_agent) AS user_agents,
+                ARRAY_AGG(user_agent) AS all_agents
             FROM aperturas
             GROUP BY remitente, destinatario
             ORDER BY primer_abierto DESC
@@ -106,16 +106,29 @@ def ver_aperturas():
 
         santiago = timezone("America/Santiago")
 
-        html = "<h2>Primeras aperturas por destinatario</h2><table border='1' cellpadding='6'><tr>"
-        html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Demora (s)</th><th>Aperturas</th><th>Dispositivos</th></tr>"
-        for r, d, e, a, s, count, agents in filas:
+        html = "<h2>Primeras aperturas reales por destinatario</h2><table border='1' cellpadding='6'><tr>"
+        html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Demora (s)</th><th>Aperturas reales</th><th>Dispositivos</th></tr>"
+
+        for r, d, e, a, s, agents, all_agents in filas:
+            agentes_reales = [ua for ua in all_agents if es_apertura_real(ua)]
+            count = len(agentes_reales)
+            dispositivos = clasificar_dispositivos(agentes_reales)
             fecha_envio = e.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
             fecha_apertura = a.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
-            html += f"<tr><td>{r}</td><td>{d}</td><td>{fecha_envio}</td><td>{fecha_apertura}</td><td>{s}</td><td>{count}</td><td>{clasificar_dispositivos(agents)}</td></tr>"
+            html += f"<tr><td>{r}</td><td>{d}</td><td>{fecha_envio}</td><td>{fecha_apertura}</td><td>{s}</td><td>{count}</td><td>{dispositivos}</td></tr>"
+
         html += "</table>"
         return html
     except Exception as e:
         return f"<p>Error al consultar la tabla: {str(e)}</p>"
+
+def es_apertura_real(user_agent: str) -> bool:
+    ua = user_agent.lower()
+    bots = [
+        "googleimageproxy", "outlook", "fetch", "bot", "scanner", "proxy",
+        "curl", "python", "requests", "prefetch", "defender", "antivirus"
+    ]
+    return not any(b in ua for b in bots)
 
 @app.route("/")
 def index():
