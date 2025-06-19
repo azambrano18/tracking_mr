@@ -30,7 +30,6 @@ def registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua
     except Exception:
         logging.exception("Error al registrar apertura")
 
-
 @app.route("/pixel")
 def pixel():
     remitente = request.args.get("from")
@@ -39,7 +38,11 @@ def pixel():
 
     if not all([remitente, destinatario, enviado_str]):
         logging.warning("Parámetros faltantes en /pixel")
-        return send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png", cache_timeout=0)
+        response = send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png")
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     try:
         enviado = datetime.fromisoformat(enviado_str)
@@ -52,7 +55,7 @@ def pixel():
     ua = request.headers.get("User-Agent", "Desconocido")
 
     registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
-    response = send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png", cache_timeout=0)
+    response = send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
