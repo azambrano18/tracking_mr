@@ -1,6 +1,7 @@
 import psycopg2
 import logging
 import os
+from pytz import timezone, UTC
 from flask import Flask, request, send_from_directory
 from datetime import datetime
 from tabla import crear_tabla_aperturas
@@ -61,22 +62,57 @@ def pixel():
     response.headers["Expires"] = "0"
     return response
 
+def clasificar_dispositivos(agents: list[str]) -> str:
+    tipos = set()
+    for ua in agents:
+        ua = ua.lower()
+        if "iphone" in ua or "ipad" in ua or "ios" in ua:
+            tipos.add("iOS")
+        elif "android" in ua:
+            tipos.add("Android")
+        elif "windows" in ua:
+            tipos.add("Windows")
+        elif "macintosh" in ua or "mac os" in ua:
+            tipos.add("Mac")
+        elif "linux" in ua:
+            tipos.add("Linux")
+        elif "mobile" in ua:
+            tipos.add("Móvil")
+        else:
+            tipos.add("Otro")
+    return ", ".join(tipos)
+
 def ver_aperturas():
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         cur.execute("""
-            SELECT remitente, destinatario, enviado, abierto, demora_segundos
-            FROM aperturas ORDER BY id DESC LIMIT 20
+            SELECT 
+                remitente,
+                destinatario,
+                MIN(enviado) AS primer_enviado,
+                MIN(abierto) AS primer_abierto,
+                MIN(demora_segundos) AS primera_demora,
+                COUNT(*) AS total_aperturas,
+                ARRAY_AGG(DISTINCT user_agent) AS user_agents
+            FROM aperturas
+            GROUP BY remitente, destinatario
+            ORDER BY primer_abierto DESC
+            LIMIT 50
         """)
         filas = cur.fetchall()
         cur.close()
         conn.close()
 
-        html = "<h2>Últimas aperturas</h2><ul>"
-        for r, d, e, a, s in filas:
-            html += f"<li><b>{r}</b> → {d} | Enviado: {e} | Abierto: {a} | Demora: {s} seg</li>"
-        html += "</ul>"
+        santiago = timezone("America/Santiago")
+
+        html = "<h2>Primeras aperturas por destinatario</h2><table border='1' cellpadding='6'><tr>"
+        html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Demora (s)</th><th>Aperturas</th><th>Dispositivos</th></tr>"
+        for r, d, e, a, s, count, agents in filas:
+            fecha_envio = e.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
+            fecha_apertura = a.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
+            html += f"<tr><td>{r}</td><td>{d}</td><td>{fecha_envio}</td><td>{fecha_apertura}</td><td>{s}</td><td>{count}</td><td>{clasificar_dispositivos(agents)}</td></tr>"
+        html += "</table>"
         return html
     except Exception as e:
         return f"<p>Error al consultar la tabla: {str(e)}</p>"

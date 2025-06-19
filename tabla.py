@@ -1,8 +1,6 @@
-# tabla.py
 import os
 import logging
 import psycopg2
-from psycopg2 import sql
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 DATABASE_URL = os.getenv("DATABASE_URL")
