@@ -118,7 +118,7 @@ def ver_clics():
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT remitente, destinatario, click_apertura,
-                           ip_address, navegador, so, pais, url_destino
+                           ip_public, navegador, so, pais, url_destino
                     FROM clicks
                     ORDER BY click_apertura DESC
                     LIMIT 100
@@ -130,10 +130,10 @@ def ver_clics():
         html += "<th>IP</th><th>Navegador</th><th>SO</th><th>País</th><th>Destino</th></tr>"
 
         for row in rows:
-            remitente, destinatario, click_apertura, ip, navegador, so, pais, url = row
+            remitente, destinatario, click_apertura, ip_public, navegador, so, pais, url = row
             html += f"<tr><td>{remitente}</td><td>{destinatario}</td>"
             html += f"<td>{formatear_fecha_santiago(click_apertura)}</td>"
-            html += f"<td>{ip}</td><td>{navegador}</td><td>{so}</td><td>{pais}</td><td>{url}</td></tr>"
+            html += f"<td>{ip_public}</td><td>{navegador}</td><td>{so}</td><td>{pais}</td><td>{url}</td></tr>"
 
         html += "</table>"
         return html
