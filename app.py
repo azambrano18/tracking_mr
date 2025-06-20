@@ -15,6 +15,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL no está definido como variable de entorno")
 
+# Extrae navegador y sistema operativo del user-agent
 def extraer_navegador_so(user_agent: str) -> tuple[str, str]:
     ua = user_agent.lower()
     navegador = "Desconocido"
@@ -44,6 +45,7 @@ def extraer_navegador_so(user_agent: str) -> tuple[str, str]:
 
     return navegador, so
 
+# Consulta externa para obtener país desde IP
 def obtener_pais_desde_ip(ip: str) -> str:
     try:
         r = requests.get(f"https://ipapi.co/{ip}/country_name/", timeout=3)
@@ -53,37 +55,32 @@ def obtener_pais_desde_ip(ip: str) -> str:
         pass
     return "Desconocido"
 
+# Formatea fechas en zona Santiago
 def formatear_fecha_santiago(fecha_utc: datetime) -> str:
     tz_scl = timezone("America/Santiago")
     fecha_local = fecha_utc.replace(tzinfo=UTC).astimezone(tz_scl)
     return fecha_local.strftime("%d/%m/%Y %H:%M")
 
+# Genera token SHA256
 def generar_token(remitente: str, destinatario: str, url: str, secreto: str = "clave-secreta") -> str:
     base = f"{remitente}-{destinatario}-{url}-{secreto}"
     return hashlib.sha256(base.encode()).hexdigest()
 
+# Ruta principal de tracking
 @app.route("/click")
 def redirigir_click():
     remitente = request.args.get("from")
     destinatario = request.args.get("to")
-    enviado_str = request.args.get("sent")
     url_destino = request.args.get("url")
     token_recibido = request.args.get("token")
 
-    if not all([remitente, destinatario, enviado_str, url_destino, token_recibido]):
+    if not all([remitente, destinatario, url_destino, token_recibido]):
         return "<h3>Faltan parámetros requeridos</h3>", 400
 
-    # Validar token
     token_esperado = generar_token(remitente, destinatario, url_destino)
     if token_recibido != token_esperado:
         return "<h3>Token inválido</h3>", 403
 
-    try:
-        enviado = datetime.fromisoformat(enviado_str)
-    except:
-        enviado = datetime.utcnow()
-
-    clic = datetime.utcnow()
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "0.0.0.0").split(",")[0].strip()
     ua = request.headers.get("User-Agent", "Desconocido")
     navegador, so = extraer_navegador_so(ua)
@@ -94,15 +91,14 @@ def redirigir_click():
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO clicks (
-                        remitente, destinatario, enviado, clic,
-                        ip_address, user_agent, navegador, so,
-                        pais, url_destino, token
+                        remitente, destinatario, url_destino,
+                        navegador, so, pais, ip_address,
+                        token, user_agent
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    remitente, destinatario, enviado, clic,
-                    ip, ua, navegador, so,
-                    pais, url_destino, token_recibido
+                    remitente, destinatario, url_destino,
+                    navegador, so, pais, ip, token_recibido, ua
                 ))
         logging.info(f"Clic registrado: {remitente} -> {destinatario}")
     except Exception:
@@ -110,28 +106,29 @@ def redirigir_click():
 
     return redirect(url_destino)
 
+# Visualiza los clics registrados
 @app.route("/clics")
 def ver_clics():
     try:
         with psycopg2.connect(DATABASE_URL) as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT remitente, destinatario, enviado, clic,
+                    SELECT remitente, destinatario, click_apertura,
                            ip_address, navegador, so, pais, url_destino
                     FROM clicks
-                    ORDER BY clic DESC
+                    ORDER BY click_apertura DESC
                     LIMIT 100
                 """)
                 rows = cur.fetchall()
 
         html = "<h2>Últimos clics registrados</h2><table border='1' cellpadding='6'>"
-        html += "<tr><th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Clic</th>"
+        html += "<tr><th>Remitente</th><th>Destinatario</th><th>Fecha clic</th>"
         html += "<th>IP</th><th>Navegador</th><th>SO</th><th>País</th><th>Destino</th></tr>"
 
         for row in rows:
-            remitente, destinatario, enviado, clic, ip, navegador, so, pais, url = row
+            remitente, destinatario, click_apertura, ip, navegador, so, pais, url = row
             html += f"<tr><td>{remitente}</td><td>{destinatario}</td>"
-            html += f"<td>{formatear_fecha_santiago(enviado)}</td><td>{formatear_fecha_santiago(clic)}</td>"
+            html += f"<td>{formatear_fecha_santiago(click_apertura)}</td>"
             html += f"<td>{ip}</td><td>{navegador}</td><td>{so}</td><td>{pais}</td><td>{url}</td></tr>"
 
         html += "</table>"
@@ -141,13 +138,21 @@ def ver_clics():
         logging.exception("Error al consultar clics")
         return f"<p>Error al consultar clics: {str(e)}</p>"
 
+# Ruta principal
 @app.route("/")
 def index():
     return "<h2>Tracking por clic activo</h2><p>Visita <code>/clics</code> para ver los registros recientes.</p>"
 
+# Health check
 @app.route("/status")
 def status():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}, 200
+    try:
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1;")
+        return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}, 200
+    except:
+        return {"status": "error"}, 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
