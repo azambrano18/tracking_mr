@@ -66,7 +66,8 @@ def generar_token(remitente: str, destinatario: str, url: str, secreto: str = "c
     base = f"{remitente}-{destinatario}-{url}-{secreto}"
     return hashlib.sha256(base.encode()).hexdigest()
 
-# Ruta principal de tracking
+from pytz import timezone
+
 @app.route("/click")
 def redirigir_click():
     remitente = request.args.get("from")
@@ -86,21 +87,24 @@ def redirigir_click():
     navegador, so = extraer_navegador_so(ua)
     pais = obtener_pais_desde_ip(ip)
 
+    # Obtener fecha y hora local de Santiago
+    tz_scl = timezone("America/Santiago")
+    click_apertura = datetime.now(tz_scl)
+
     try:
         with psycopg2.connect(DATABASE_URL) as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO clicks (
-                        remitente, destinatario, url_destino,
-                        navegador, so, pais, ip_address,
-                        token, user_agent
+                        remitente, destinatario, click_apertura, url_destino,
+                        navegador, so, pais, ip_address, token, user_agent
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    remitente, destinatario, url_destino,
+                    remitente, destinatario, click_apertura, url_destino,
                     navegador, so, pais, ip, token_recibido, ua
                 ))
-        logging.info(f"Clic registrado: {remitente} -> {destinatario}")
+        logging.info(f"Clic registrado: {remitente} -> {destinatario} ({click_apertura})")
     except Exception:
         logging.exception("Error al registrar clic")
 
