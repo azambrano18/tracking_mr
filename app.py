@@ -107,7 +107,7 @@ def ver_aperturas():
         santiago = timezone("America/Santiago")
 
         html = "<h2>Primeras aperturas reales por destinatario</h2><table border='1' cellpadding='6'><tr>"
-        html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Demora (s)</th><th>Aperturas reales</th><th>Dispositivos</th></tr>"
+        html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Aperturas reales</th><th>Dispositivos</th></tr>"
 
         for r, d, e, a, s, agents, all_agents in filas:
             agentes_reales = [ua for ua in all_agents if es_apertura_real(ua)]
@@ -115,7 +115,7 @@ def ver_aperturas():
             dispositivos = clasificar_dispositivos(agentes_reales)
             fecha_envio = e.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
             fecha_apertura = a.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
-            html += f"<tr><td>{r}</td><td>{d}</td><td>{fecha_envio}</td><td>{fecha_apertura}</td><td>{s}</td><td>{count}</td><td>{dispositivos}</td></tr>"
+            html += f"<tr><td>{r}</td><td>{d}</td><td>{fecha_envio}</td><td>{fecha_apertura}</td><td>{count}</td><td>{dispositivos}</td></tr>"
 
         html += "</table>"
         return html
