@@ -56,11 +56,18 @@ def pixel():
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "0.0.0.0").split(",")[0].strip()
     ua = request.headers.get("User-Agent", "Desconocido")
 
-    # Evitar registrar apertura si es el mismo remitente y destinatario
-    if remitente.lower() != destinatario.lower():
-        registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
+    # Evitar registrar si:
+    # 1. remitente == destinatario (autoprueba)
+    # 2. user-agent de proxy de Gmail
+    # 3. user-agent detectado como bot
+    if remitente.lower() == destinatario.lower():
+        logging.info(f"Apertura ignorada: remitente = destinatario -> {remitente}")
+    elif "googleimageproxy" in ua.lower() or "ggpht" in ua.lower():
+        logging.info(f"Apertura ignorada por Google Proxy: UA = {ua}")
+    elif not es_apertura_real(ua):
+        logging.info(f"Apertura descartada por user_agent sospechoso: {ua}")
     else:
-        logging.info(f"Apertura ignorada: remitente y destinatario son iguales -> {remitente}")
+        registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
 
     return response
 
@@ -94,13 +101,11 @@ def ver_aperturas():
                 destinatario,
                 MIN(enviado) AS primer_enviado,
                 MIN(abierto) AS primer_abierto,
-                MIN(demora_segundos) AS primera_demora,
-                ARRAY_AGG(DISTINCT user_agent) AS user_agents,
                 ARRAY_AGG(user_agent) AS all_agents
             FROM aperturas
             GROUP BY remitente, destinatario
             ORDER BY primer_abierto DESC
-            LIMIT 50
+            LIMIT 100
         """)
         filas = cur.fetchall()
         cur.close()
@@ -108,19 +113,21 @@ def ver_aperturas():
 
         santiago = timezone("America/Santiago")
 
-        html = "<h2>Taza de Apertura</h2><table border='1' cellpadding='6'><tr>"
+        html = "<h2>Tasa de Apertura</h2><table border='1' cellpadding='6'><tr>"
         html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Aperturas reales</th><th>Dispositivos</th></tr>"
 
-        for r, d, e, a, s, agents, all_agents in filas:
+        for remitente, destinatario, enviado, abierto, all_agents in filas:
             agentes_reales = [ua for ua in all_agents if es_apertura_real(ua)]
             count = len(agentes_reales)
             dispositivos = clasificar_dispositivos(agentes_reales)
-            fecha_envio = e.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
-            fecha_apertura = a.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
-            html += f"<tr><td>{r}</td><td>{d}</td><td>{fecha_envio}</td><td>{fecha_apertura}</td><td>{count}</td><td>{dispositivos}</td></tr>"
+            enviado_str = enviado.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
+            abierto_str = abierto.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
+
+            html += f"<tr><td>{remitente}</td><td>{destinatario}</td><td>{enviado_str}</td><td>{abierto_str}</td><td>{count}</td><td>{dispositivos}</td></tr>"
 
         html += "</table>"
         return html
+
     except Exception as e:
         return f"<p>Error al consultar la tabla: {str(e)}</p>"
 
@@ -129,6 +136,7 @@ def es_apertura_real(user_agent: str) -> bool:
     bots = [
         "googleimageproxy", "outlook", "fetch", "bot", "scanner", "proxy",
         "curl", "python", "requests", "prefetch", "defender", "antivirus"
+        "ms-office", "office", "msoffice", "libwww", "word"
     ]
     return not any(b in ua for b in bots)
 
