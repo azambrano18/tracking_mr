@@ -54,18 +54,17 @@ def pixel():
     abierto = datetime.utcnow()
     demora = int((abierto - enviado).total_seconds())
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "0.0.0.0").split(",")[0].strip()
-    ua = request.headers.get("User-Agent", "Desconocido")
+    ua = request.headers.get("User-Agent", "Desconocido").lower()
 
-    # Evitar registrar si:
-    # 1. remitente == destinatario (autoprueba)
-    # 2. user-agent de proxy de Gmail
-    # 3. user-agent detectado como bot
+    # Lógica final de exclusión
     if remitente.lower() == destinatario.lower():
-        logging.info(f"Apertura ignorada: remitente = destinatario -> {remitente}")
-    elif "googleimageproxy" in ua.lower() or "ggpht" in ua.lower():
-        logging.info(f"Apertura ignorada por Google Proxy: UA = {ua}")
+        logging.info(f"[IGNORADO] Remitente = destinatario: {remitente}")
+    elif "googleimageproxy" in ua or "ggpht" in ua:
+        logging.info(f"[IGNORADO] Proxy de Gmail: UA = {ua}")
     elif not es_apertura_real(ua):
-        logging.info(f"Apertura descartada por user_agent sospechoso: {ua}")
+        logging.info(f"[IGNORADO] User-Agent no confiable: {ua}")
+    elif demora < 5:
+        logging.info(f"[IGNORADO] Demora sospechosa (<5s): {demora}s desde el envío")
     else:
         registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
 
@@ -136,25 +135,23 @@ def es_apertura_real(user_agent: str) -> bool:
         return False
     ua = user_agent.lower()
 
-    # Bots conocidos que deben ser excluidos
+    # Agentes conocidos de bots, antivirus, proxys o precargas automáticas
     blacklist = [
         "bot", "scanner", "proxy", "fetch", "curl", "python", "requests",
-        "defender", "antivirus", "googleimageproxy", "ggpht", "msoffice", "ms-office", "word"
+        "defender", "antivirus", "googleimageproxy", "ggpht",
+        "msoffice", "ms-office", "word", "libwww"
     ]
 
-    # Navegadores humanos conocidos
-    whitelist = ["chrome", "safari", "firefox", "edge", "android", "iphone", "ios", "applewebkit"]
+    # Firmas específicas de navegadores sospechosos usados por proxies
+    if "chrome/42" in ua or "edge/12" in ua:
+        return False
 
-    # Si contiene algo de la blacklist, lo descartamos
     if any(b in ua for b in blacklist):
         return False
 
-    # Si contiene algo de la whitelist, lo aceptamos
-    if any(w in ua for w in whitelist):
-        return True
-
-    # Si no cumple ninguna, lo tratamos como no confiable
-    return False
+    # Agentes típicos de navegadores reales
+    whitelist = ["chrome", "safari", "firefox", "edge", "android", "iphone", "ios", "applewebkit"]
+    return any(w in ua for w in whitelist)
 
 @app.route("/")
 def index():
