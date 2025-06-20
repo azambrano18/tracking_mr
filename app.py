@@ -17,20 +17,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL no está definido como variable de entorno")
 
-# app.py (reemplazo parcial)
-def registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua):
-    query = """
-    INSERT INTO aperturas (remitente, destinatario, enviado, abierto, demora_segundos, ip_address, user_agent)
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
-    """
-    try:
-        with psycopg2.connect(DATABASE_URL) as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, (remitente, destinatario, enviado, abierto, demora, ip, ua))
-        logging.info(f"Apertura registrada: {remitente} -> {destinatario} ({demora} seg.)")
-    except Exception:
-        logging.exception("Error al registrar apertura")
-
 def registrar_apertura_segura(
     remitente: str,
     destinatario: str,
@@ -56,6 +42,35 @@ def registrar_apertura_segura(
 
     except Exception:
         logging.exception("Error al registrar apertura segura")
+
+def es_apertura_confiable(user_agent: str) -> bool:
+    condiciones = es_apertura_sospechosa("x", "y", 10, user_agent)
+    return not (condiciones["ua_invalido"] or condiciones["ua_blacklist"] or condiciones["ua_vacio"])
+
+
+def es_apertura_sospechosa(remitente: str, destinatario: str, demora: int, user_agent: str) -> dict[str, bool]:
+    ua = user_agent.lower() if user_agent else ""
+
+    # Blacklist: bots, antivirus, proxys, librerías
+    blacklist = [
+        "bot", "scanner", "proxy", "fetch", "curl", "python", "requests",
+        "defender", "antivirus", "googleimageproxy", "ggpht",
+        "msoffice", "ms-office", "word", "libwww"
+    ]
+
+    condiciones = {
+        "mismo_remitente": remitente.lower() == destinatario.lower(),
+        "gmail_proxy": "googleimageproxy" in ua or "ggpht" in ua,
+        "ua_invalido": not any(w in ua for w in [
+            "chrome", "safari", "firefox", "edge", "android", "iphone", "ios", "applewebkit", "mozilla"
+        ]),
+        "ua_blacklist": any(b in ua for b in blacklist),
+        "demora_sospechosa": demora < 2,  # Puedes ajustar este umbral según comportamiento real
+        "navegador_viejo": "chrome/42" in ua or "edge/12" in ua,
+        "ua_vacio": not user_agent
+    }
+
+    return condiciones
 
 @app.route("/pixel")
 def pixel():
@@ -87,7 +102,7 @@ def pixel():
     condiciones = {
         "mismo_remitente": remitente.lower() == destinatario.lower(),
         "gmail_proxy": "googleimageproxy" in ua or "ggpht" in ua,
-        "ua_invalido": not es_apertura_real(ua),
+        "ua_invalido": not es_apertura_confiable(ua),
         "demora_sospechosa": demora < 2
     }
 
@@ -150,7 +165,7 @@ def ver_aperturas():
         html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Aperturas reales</th><th>Dispositivos</th></tr>"
 
         for remitente, destinatario, enviado, abierto, all_agents in filas:
-            agentes_reales = [ua for ua in all_agents if es_apertura_real(ua)]
+            agentes_reales = [ua for ua in all_agents if es_apertura_confiable(ua)]
             count = len(agentes_reales)
             dispositivos = clasificar_dispositivos(agentes_reales)
             enviado_str = enviado.replace(tzinfo=UTC).astimezone(santiago).strftime("%d/%m/%Y %H:%M")
@@ -164,30 +179,6 @@ def ver_aperturas():
     except Exception as e:
         return f"<p>Error al consultar la tabla: {str(e)}</p>"
 
-def es_apertura_real(user_agent: str) -> bool:
-    if not user_agent:
-        return False
-    ua = user_agent.lower()
-
-    # Agentes conocidos de bots, antivirus, proxys o precargas automáticas
-    blacklist = [
-        "bot", "scanner", "proxy", "fetch", "curl", "python", "requests",
-        "defender", "antivirus", "googleimageproxy", "ggpht",
-        "msoffice", "ms-office", "word", "libwww"
-    ]
-
-    # Firmas específicas de navegadores sospechosos usados por proxies
-    if "chrome/42" in ua or "edge/12" in ua:
-        return False
-
-    if any(b in ua for b in blacklist):
-        return False
-
-    # Agentes típicos de navegadores reales
-    whitelist = ["chrome", "safari", "firefox", "edge", "android", "iphone", "ios", "applewebkit"]
-    return any(w in ua for w in whitelist)
-
-# app.py
 @app.route("/metricas")
 def metricas():
     try:
