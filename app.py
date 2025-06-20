@@ -132,13 +132,29 @@ def ver_aperturas():
         return f"<p>Error al consultar la tabla: {str(e)}</p>"
 
 def es_apertura_real(user_agent: str) -> bool:
+    if not user_agent:
+        return False
     ua = user_agent.lower()
-    bots = [
-        "googleimageproxy", "outlook", "fetch", "bot", "scanner", "proxy",
-        "curl", "python", "requests", "prefetch", "defender", "antivirus"
-        "ms-office", "office", "msoffice", "libwww", "word"
+
+    # Bots conocidos que deben ser excluidos
+    blacklist = [
+        "bot", "scanner", "proxy", "fetch", "curl", "python", "requests",
+        "defender", "antivirus", "googleimageproxy", "ggpht", "msoffice", "ms-office", "word"
     ]
-    return not any(b in ua for b in bots)
+
+    # Navegadores humanos conocidos
+    whitelist = ["chrome", "safari", "firefox", "edge", "android", "iphone", "ios", "applewebkit"]
+
+    # Si contiene algo de la blacklist, lo descartamos
+    if any(b in ua for b in blacklist):
+        return False
+
+    # Si contiene algo de la whitelist, lo aceptamos
+    if any(w in ua for w in whitelist):
+        return True
+
+    # Si no cumple ninguna, lo tratamos como no confiable
+    return False
 
 @app.route("/")
 def index():
