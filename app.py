@@ -66,8 +66,6 @@ def generar_token(remitente: str, destinatario: str, url: str, secreto: str = "c
     base = f"{remitente}-{destinatario}-{url}-{secreto}"
     return hashlib.sha256(base.encode()).hexdigest()
 
-from pytz import timezone
-
 @app.route("/click")
 def redirigir_click():
     remitente = request.args.get("from")
@@ -78,16 +76,18 @@ def redirigir_click():
     if not all([remitente, destinatario, url_destino, token_recibido]):
         return "<h3>Faltan parámetros requeridos</h3>", 400
 
+    # Validar token
     token_esperado = generar_token(remitente, destinatario, url_destino)
     if token_recibido != token_esperado:
         return "<h3>Token inválido</h3>", 403
 
+    # Datos del cliente
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "0.0.0.0").split(",")[0].strip()
     ua = request.headers.get("User-Agent", "Desconocido")
     navegador, so = extraer_navegador_so(ua)
     pais = obtener_pais_desde_ip(ip)
 
-    # Obtener fecha y hora local de Santiago
+    # Fecha/hora real en Chile (zona horaria local)
     tz_scl = timezone("America/Santiago")
     click_apertura = datetime.now(tz_scl)
 
@@ -97,7 +97,7 @@ def redirigir_click():
                 cur.execute("""
                     INSERT INTO clicks (
                         remitente, destinatario, click_apertura, url_destino,
-                        navegador, so, pais, ip_address, token, user_agent
+                        navegador, so, pais, ip_public, token, user_agent
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
