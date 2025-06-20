@@ -32,3 +32,18 @@ def crear_tabla_aperturas():
         logging.info("Tabla 'aperturas' creada o ya existente.")
     except Exception:
         logging.exception("Error al crear la tabla 'aperturas'")
+
+def crear_indices():
+    queries = [
+        "CREATE INDEX IF NOT EXISTS idx_destinatario ON aperturas(destinatario);",
+        "CREATE INDEX IF NOT EXISTS idx_enviado ON aperturas(enviado);",
+        "CREATE INDEX IF NOT EXISTS idx_abierto ON aperturas(abierto);"
+    ]
+    try:
+        with obtener_conexion() as conn:
+            with conn.cursor() as cur:
+                for query in queries:
+                    cur.execute(query)
+        logging.info("Índices creados correctamente.")
+    except Exception:
+        logging.exception("Error al crear índices en la tabla 'aperturas'")

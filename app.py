@@ -31,6 +31,7 @@ def registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua
     except Exception:
         logging.exception("Error al registrar apertura")
 
+# app.py (reemplazo completo de la función pixel)
 @app.route("/pixel")
 def pixel():
     remitente = request.args.get("from")
@@ -38,11 +39,13 @@ def pixel():
     enviado_str = request.args.get("sent")
 
     response = send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png")
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+    response.headers.update({
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    })
 
-    if not all([remitente, destinatario, enviado_str]):
+    if not remitente or not destinatario or not enviado_str:
         logging.warning("Parámetros faltantes en /pixel")
         return response
 
@@ -56,15 +59,16 @@ def pixel():
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "0.0.0.0").split(",")[0].strip()
     ua = request.headers.get("User-Agent", "Desconocido").lower()
 
-    # Lógica final de exclusión
-    if remitente.lower() == destinatario.lower():
-        logging.info(f"[IGNORADO] Remitente = destinatario: {remitente}")
-    elif "googleimageproxy" in ua or "ggpht" in ua:
-        logging.info(f"[IGNORADO] Proxy de Gmail: UA = {ua}")
-    elif not es_apertura_real(ua):
-        logging.info(f"[IGNORADO] User-Agent no confiable: {ua}")
-    elif demora < 5:
-        logging.info(f"[IGNORADO] Demora sospechosa (<5s): {demora}s desde el envío")
+    condiciones = {
+        "mismo_remitente": remitente.lower() == destinatario.lower(),
+        "gmail_proxy": "googleimageproxy" in ua or "ggpht" in ua,
+        "ua_invalido": not es_apertura_real(ua),
+        "demora_sospechosa": demora < 5
+    }
+
+    if any(condiciones.values()):
+        motivo = ", ".join([k for k, v in condiciones.items() if v])
+        logging.info(f"[IGNORADO] {motivo}: {remitente} → {destinatario}")
     else:
         registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
 
@@ -152,6 +156,34 @@ def es_apertura_real(user_agent: str) -> bool:
     # Agentes típicos de navegadores reales
     whitelist = ["chrome", "safari", "firefox", "edge", "android", "iphone", "ios", "applewebkit"]
     return any(w in ua for w in whitelist)
+
+# app.py
+@app.route("/metricas")
+def metricas():
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT remitente, COUNT(DISTINCT destinatario), COUNT(*) 
+            FROM aperturas
+            GROUP BY remitente
+            ORDER BY COUNT(*) DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        html = "<h2>Métricas por Remitente</h2><table border='1' cellpadding='6'>"
+        html += "<tr><th>Remitente</th><th>Destinatarios únicos</th><th>Total aperturas</th></tr>"
+
+        for remitente, destinatarios, total in rows:
+            html += f"<tr><td>{remitente}</td><td>{destinatarios}</td><td>{total}</td></tr>"
+
+        html += "</table>"
+        return html
+    except Exception as e:
+        logging.exception("Error al obtener métricas")
+        return f"<p>Error al obtener métricas: {str(e)}</p>"
 
 @app.route("/")
 def index():
