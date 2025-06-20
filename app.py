@@ -31,7 +31,32 @@ def registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua
     except Exception:
         logging.exception("Error al registrar apertura")
 
-# app.py (reemplazo completo de la función pixel)
+def registrar_apertura_segura(
+    remitente: str,
+    destinatario: str,
+    enviado: datetime,
+    abierto: datetime,
+    demora: int,
+    ip: str,
+    user_agent: str,
+    condiciones: dict[str, bool]
+) -> None:
+    try:
+        etiqueta = "Válida" if not any(condiciones.values()) else "Sospechosa: " + ", ".join([k for k, v in condiciones.items() if v])
+        user_agent_marcado = f"{user_agent} | {etiqueta}"
+
+        query = """
+        INSERT INTO aperturas (remitente, destinatario, enviado, abierto, demora_segundos, ip_address, user_agent)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, (remitente, destinatario, enviado, abierto, demora, ip, user_agent_marcado))
+        logging.info(f"Apertura registrada ({etiqueta}): {remitente} -> {destinatario} en {demora}s")
+
+    except Exception:
+        logging.exception("Error al registrar apertura segura")
+
 @app.route("/pixel")
 def pixel():
     remitente = request.args.get("from")
@@ -63,14 +88,19 @@ def pixel():
         "mismo_remitente": remitente.lower() == destinatario.lower(),
         "gmail_proxy": "googleimageproxy" in ua or "ggpht" in ua,
         "ua_invalido": not es_apertura_real(ua),
-        "demora_sospechosa": demora < 5
+        "demora_sospechosa": demora < 2
     }
 
-    if any(condiciones.values()):
-        motivo = ", ".join([k for k, v in condiciones.items() if v])
-        logging.info(f"[IGNORADO] {motivo}: {remitente} → {destinatario}")
-    else:
-        registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
+    registrar_apertura_segura(
+        remitente,
+        destinatario,
+        enviado,
+        abierto,
+        demora,
+        ip,
+        ua,
+        condiciones
+    )
 
     return response
 
