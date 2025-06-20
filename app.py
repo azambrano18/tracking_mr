@@ -37,12 +37,13 @@ def pixel():
     destinatario = request.args.get("to")
     enviado_str = request.args.get("sent")
 
+    response = send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     if not all([remitente, destinatario, enviado_str]):
         logging.warning("Parámetros faltantes en /pixel")
-        response = send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png")
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
         return response
 
     try:
@@ -55,11 +56,12 @@ def pixel():
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "0.0.0.0").split(",")[0].strip()
     ua = request.headers.get("User-Agent", "Desconocido")
 
-    registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
-    response = send_from_directory(PIXEL_PATH, PIXEL_NAME, mimetype="image/png")
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+    # Evitar registrar apertura si es el mismo remitente y destinatario
+    if remitente.lower() != destinatario.lower():
+        registrar_apertura(remitente, destinatario, enviado, abierto, demora, ip, ua)
+    else:
+        logging.info(f"Apertura ignorada: remitente y destinatario son iguales -> {remitente}")
+
     return response
 
 def clasificar_dispositivos(agents: list[str]) -> str:
@@ -106,7 +108,7 @@ def ver_aperturas():
 
         santiago = timezone("America/Santiago")
 
-        html = "<h2>Primeras aperturas reales por destinatario</h2><table border='1' cellpadding='6'><tr>"
+        html = "<h2>Taza de Apertura</h2><table border='1' cellpadding='6'><tr>"
         html += "<th>Remitente</th><th>Destinatario</th><th>Enviado</th><th>Abierto</th><th>Aperturas reales</th><th>Dispositivos</th></tr>"
 
         for r, d, e, a, s, agents, all_agents in filas:
