@@ -3,6 +3,7 @@ import logging
 import hashlib
 import requests
 import psycopg2
+import dns.resolver
 from datetime import datetime
 from pytz import timezone, UTC
 from flask import Flask, request, redirect
@@ -81,34 +82,72 @@ def redirigir_click():
     if token_recibido != token_esperado:
         return "<h3>Token inválido</h3>", 403
 
-    # Datos del cliente
+    # Datos del clic
     ip = request.headers.get("X-Forwarded-For", request.remote_addr or "0.0.0.0").split(",")[0].strip()
     ua = request.headers.get("User-Agent", "Desconocido")
     navegador, so = extraer_navegador_so(ua)
     pais = obtener_pais_desde_ip(ip)
-
-    # Fecha/hora real en Chile (zona horaria local)
     tz_scl = timezone("America/Santiago")
     click_apertura = datetime.now(tz_scl)
 
     try:
         with psycopg2.connect(DATABASE_URL) as conn:
             with conn.cursor() as cur:
+                # Buscar si ya existe un envío con ese remitente + destinatario + token
                 cur.execute("""
-                    INSERT INTO clicks (
-                        remitente, destinatario, click_apertura, url_destino,
-                        navegador, so, pais, ip_public, token, user_agent
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    remitente, destinatario, click_apertura, url_destino,
-                    navegador, so, pais, ip, token_recibido, ua
-                ))
-        logging.info(f"Clic registrado: {remitente} -> {destinatario} ({click_apertura})")
+                    SELECT id FROM clicks
+                    WHERE remitente = %s AND destinatario = %s AND token = %s
+                """, (remitente, destinatario, token_recibido))
+                existente = cur.fetchone()
+
+                if existente:
+                    # Actualizar la fila existente con datos del clic
+                    cur.execute("""
+                        UPDATE clicks SET
+                            click_apertura = %s,
+                            url_destino = %s,
+                            navegador = %s,
+                            so = %s,
+                            pais = %s,
+                            ip_public = %s,
+                            user_agent = %s
+                        WHERE id = %s
+                    """, (
+                        click_apertura, url_destino, navegador, so,
+                        pais, ip, ua, existente[0]
+                    ))
+                    logging.info(f"Click actualizado: {remitente} → {destinatario} ({click_apertura})")
+                else:
+                    # Insertar nuevo registro como fallback
+                    cur.execute("""
+                        INSERT INTO clicks (
+                            remitente, fecha_envio, tipo_envio, destinatario,
+                            dominio_destinatario, servidor_correo, click_apertura,
+                            url_destino, navegador, so, pais,
+                            ip_public, token, user_agent
+                        ) VALUES (%s, NULL, NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        remitente, destinatario,
+                        destinatario.split("@")[-1].lower(),
+                        "desconocido",  # no se puede resolver desde clic
+                        click_apertura,
+                        url_destino, navegador, so, pais,
+                        ip, token_recibido, ua
+                    ))
+                    logging.warning(f"Click insertado sin envío previo: {remitente} → {destinatario}")
+
     except Exception:
         logging.exception("Error al registrar clic")
 
     return redirect(url_destino)
+
+def obtener_servidor_correo(dominio: str) -> str:
+    try:
+        respuestas = dns.resolver.resolve(dominio, 'MX')
+        servidor = sorted(respuestas, key=lambda r: r.preference)[0].exchange.to_text()
+        return servidor.lower()
+    except Exception:
+        return "desconocido"
 
 # Visualiza los clics registrados
 @app.route("/clics")
